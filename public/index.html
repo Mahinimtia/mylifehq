@@ -6,6 +6,7 @@
 <title>My Life HQ</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -211,6 +212,10 @@ select option{background:var(--bg2)}
     <button class="nav-item" onclick="goTo('diary')"><i class="ti ti-notebook"></i> Diary & notes</button>
     <button class="nav-item" onclick="goTo('calendar')"><i class="ti ti-calendar"></i> Calendar</button>
     <button class="nav-item" onclick="goTo('goals')"><i class="ti ti-target"></i> Life planning</button>
+
+    <div class="nav-sec">Data</div>
+    <button class="nav-item" onclick="goTo('import')"><i class="ti ti-table-import"></i> Import / Export</button>
+    <button class="nav-item" onclick="goTo('datamanager')"><i class="ti ti-database"></i> Data manager</button>
   </nav>
   <div class="sidebar-footer">
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="openModal('m-txn')">
@@ -458,6 +463,95 @@ select option{background:var(--bg2)}
   <div id="goals-list"></div>
 </div>
 
+<!-- ===== IMPORT / EXPORT ===== -->
+<div id="page-import" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-left"><h1>Import & Export</h1><p>Upload Excel or CSV files to bulk-load data — or export everything</p></div>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="card mb" id="imp-upload-card">
+    <div class="card-hdr"><span class="card-title"><i class="ti ti-file-spreadsheet"></i> Upload Excel / CSV file</span></div>
+    <div id="imp-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:50px 20px;text-align:center;cursor:pointer;transition:.2s" onclick="document.getElementById('imp-file').click()" ondragover="impDragOver(event)" ondrop="impDrop(event)">
+      <i class="ti ti-cloud-upload" style="font-size:42px;color:var(--text3);display:block;margin-bottom:12px"></i>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Drop your file here or click to browse</div>
+      <div style="font-size:12px;color:var(--text3)">Supports .xlsx, .xls, .csv — max 10MB</div>
+      <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="impFileChosen(this)">
+    </div>
+
+    <!-- Template downloads -->
+    <div style="margin-top:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Download blank templates</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('transactions')"><i class="ti ti-download"></i> Transactions</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('investments')"><i class="ti ti-download"></i> Investments</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('goals')"><i class="ti ti-download"></i> Goals</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('events')"><i class="ti ti-download"></i> Events</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview area (hidden until file loaded) -->
+  <div id="imp-preview" style="display:none">
+    <div class="card mb">
+      <div class="card-hdr">
+        <span class="card-title"><i class="ti ti-eye"></i> Preview — <span id="imp-filename"></span></span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="imp-detect-badge" class="badge badge-info"></span>
+          <button class="btn btn-ghost btn-sm" onclick="impReset()"><i class="ti ti-x"></i> Cancel</button>
+        </div>
+      </div>
+      <!-- sheet selector -->
+      <div id="imp-sheet-row" style="display:none;margin-bottom:12px">
+        <label class="form-label">Sheet / section to import</label>
+        <select id="imp-sheet-sel" style="width:220px" onchange="impSheetChange()"></select>
+      </div>
+      <!-- column mapping -->
+      <div id="imp-mapping-area" style="margin-bottom:14px"></div>
+      <!-- table preview -->
+      <div id="imp-table-wrap" style="overflow-x:auto;max-height:300px;overflow-y:auto;font-size:12px"></div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="impCommit()"><i class="ti ti-database-import"></i> Import <span id="imp-row-count"></span> rows</button>
+        <div style="font-size:12px;color:var(--text2)">Existing data will be <strong>kept</strong> — rows are added, not replaced</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="card">
+    <div class="card-hdr"><span class="card-title"><i class="ti ti-file-export"></i> Export your data</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="exportData('transactions')"><i class="ti ti-table-export"></i> Export transactions (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('investments')"><i class="ti ti-table-export"></i> Export investments (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('goals')"><i class="ti ti-table-export"></i> Export goals (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('events')"><i class="ti ti-table-export"></i> Export events (CSV)</button>
+      <button class="btn btn-primary" onclick="exportData('all')"><i class="ti ti-archive"></i> Export ALL data (JSON)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DATA MANAGER ===== -->
+<div id="page-datamanager" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-left"><h1>Data manager</h1><p>View, edit and delete individual records directly</p></div>
+    <div style="display:flex;gap:8px">
+      <select id="dm-section" onchange="dmLoad()" style="width:170px">
+        <option value="transactions">Transactions</option>
+        <option value="investments">Investments</option>
+        <option value="goals">Goals</option>
+        <option value="events">Events</option>
+        <option value="budgetcats">Budget categories</option>
+        <option value="notes">Notes / diary</option>
+      </select>
+      <button class="btn btn-danger btn-sm" onclick="dmClearSection()"><i class="ti ti-trash"></i> Clear section</button>
+      <button class="btn btn-danger btn-sm" onclick="dmClearAll()" style="background:rgba(239,68,68,.2)"><i class="ti ti-database-off"></i> Clear ALL data</button>
+    </div>
+  </div>
+  <div class="card">
+    <div id="dm-table-wrap" style="overflow-x:auto;font-size:13px"></div>
+  </div>
+</div>
+
 </main>
 </div>
 
@@ -556,17 +650,463 @@ select option{background:var(--bg2)}
 <div class="snack" id="snack"></div>
 
 <script>
-const API = '/api';
+/* ============================================================
+   LOCAL STORAGE DATA LAYER  (replaces server API)
+   All data is stored in localStorage under keys:
+     hq_transactions, hq_holdings, hq_notes, hq_events,
+     hq_goals, hq_budgetcats
+   ============================================================ */
+
 const fmt = n => '£' + Math.round(n).toLocaleString('en-GB');
 const pct = (a,b) => b===0 ? '0%' : (a/b*100).toFixed(1)+'%';
+const uid = () => Math.random().toString(36).slice(2,10);
 
+const STORES = {
+  transactions: 'hq_transactions',
+  holdings:     'hq_holdings',
+  notes:        'hq_notes',
+  events:       'hq_events',
+  goals:        'hq_goals',
+  budgetcats:   'hq_budgetcats'
+};
+
+function lsGet(key) {
+  try { return JSON.parse(localStorage.getItem(STORES[key]||key) || '[]'); } catch { return []; }
+}
+function lsSet(key, val) {
+  localStorage.setItem(STORES[key]||key, JSON.stringify(val));
+}
+
+// Shim the async api() calls used throughout the app
 async function api(method, path, body) {
-  const r = await fetch(API+path, {
-    method, headers:{'Content-Type':'application/json'},
-    body: body ? JSON.stringify(body) : undefined
+  // Parse path like /transactions, /transactions?type=income, /transactions/id123
+  const [rawPath, qs] = path.split('?');
+  const parts = rawPath.replace(/^\//, '').split('/');
+  const resource = parts[0];  // e.g. 'transactions'
+  const recordId = parts[1];  // e.g. 'id123' or undefined
+  const params = Object.fromEntries(new URLSearchParams(qs||''));
+
+  if (resource === 'summary') {
+    const txns = lsGet('transactions');
+    const holdings = lsGet('holdings');
+    let income=0, expenses=0, savings=0;
+    const spendByCat = {};
+    txns.forEach(t => {
+      if (t.type==='income') income += t.amount;
+      else if (t.type==='expense') { expenses += t.amount; spendByCat[t.cat]=(spendByCat[t.cat]||0)+t.amount; }
+      else if (t.type==='savings') savings += t.amount;
+    });
+    const invVal = holdings.reduce((a,h) => a+(+h.val||0), 0);
+    return { income, expenses, savings, netWorth: savings+invVal, spendByCat };
+  }
+
+  if (method==='GET') {
+    let data = lsGet(resource);
+    if (resource==='transactions') {
+      if (params.type && params.type!=='all') data = data.filter(t=>t.type===params.type);
+      if (params.cat && params.cat!=='all') data = data.filter(t=>t.cat===params.cat);
+      data = data.slice().sort((a,b)=>b.date.localeCompare(a.date));
+    }
+    if (resource==='notes') {
+      if (params.type && params.type!=='all') data = data.filter(n=>n.type===params.type);
+    }
+    return data;
+  }
+
+  if (method==='POST') {
+    const data = lsGet(resource);
+    const record = { id: uid(), ...body };
+    if (!record.date && resource!=='holdings' && resource!=='goals' && resource!=='budgetcats') {
+      record.date = new Date().toISOString().split('T')[0];
+    }
+    data.unshift(record);
+    lsSet(resource, data);
+    return record;
+  }
+
+  if (method==='DELETE') {
+    const data = lsGet(resource).filter(r => r.id !== recordId);
+    lsSet(resource, data);
+    return { ok: true };
+  }
+}
+
+/* ============================================================
+   IMPORT / EXPORT SYSTEM
+   ============================================================ */
+
+let _impWorkbook = null;
+let _impParsedRows = [];
+let _impType = null;
+
+// Detect what kind of data this sheet contains
+function detectDataType(headers) {
+  const h = headers.map(x => String(x||'').toLowerCase());
+  const join = h.join(' ');
+  if (join.includes('amount') && (join.includes('type') || join.includes('income') || join.includes('expense'))) return 'transactions';
+  if (join.includes('ticker') || join.includes('holding') || join.includes('invested') || (join.includes('value') && join.includes('cost'))) return 'investments';
+  if (join.includes('progress') || (join.includes('goal') && join.includes('cat'))) return 'goals';
+  if (join.includes('event') || (join.includes('title') && join.includes('date') && join.includes('tag'))) return 'events';
+  if (join.includes('amount') && join.includes('date') && join.includes('desc')) return 'transactions';
+  if (join.includes('amount') && join.includes('date')) return 'transactions';
+  if (join.includes('date')) return 'events';
+  if (join.includes('title') && join.includes('content')) return 'notes';
+  return 'transactions'; // default
+}
+
+// Map detected type to field definitions
+const TYPE_FIELDS = {
+  transactions: [
+    { key:'type',   label:'Type (income/expense/savings)', match:['type'] },
+    { key:'desc',   label:'Description',                   match:['desc','description','name','detail','details','memo'] },
+    { key:'amount', label:'Amount (£)',                    match:['amount','value','sum','total','£'] },
+    { key:'date',   label:'Date',                          match:['date'] },
+    { key:'cat',    label:'Category',                      match:['cat','category'] },
+  ],
+  investments: [
+    { key:'name',  label:'Name / Ticker',         match:['name','ticker','asset','holding'] },
+    { key:'type',  label:'Type (stock/crypto/…)', match:['type'] },
+    { key:'cost',  label:'Amount invested (£)',   match:['cost','invested','purchase','buy'] },
+    { key:'val',   label:'Current value (£)',     match:['val','value','current','worth'] },
+  ],
+  goals: [
+    { key:'title',    label:'Goal title',    match:['title','goal','name'] },
+    { key:'cat',      label:'Category',      match:['cat','category'] },
+    { key:'target',   label:'Target date',   match:['target','date','deadline'] },
+    { key:'progress', label:'Progress (%)',  match:['progress','pct','percent','%'] },
+    { key:'notes',    label:'Notes',         match:['notes','note','detail','details'] },
+  ],
+  events: [
+    { key:'title', label:'Event title', match:['title','event','name'] },
+    { key:'date',  label:'Date',        match:['date'] },
+    { key:'tag',   label:'Tag',         match:['tag','type','category'] },
+    { key:'notes', label:'Notes',       match:['notes','note','detail'] },
+  ],
+  notes: [
+    { key:'type',    label:'Type (diary/note/plan)', match:['type'] },
+    { key:'title',   label:'Title',                  match:['title','name'] },
+    { key:'content', label:'Content',                match:['content','body','text','entry'] },
+    { key:'date',    label:'Date',                   match:['date'] },
+  ],
+};
+
+function bestMatch(fieldMatches, headers) {
+  const lower = headers.map(h => String(h||'').toLowerCase());
+  for (const m of fieldMatches) {
+    for (const h of lower) {
+      if (m.some(k => h.includes(k))) return headers[lower.indexOf(h)];
+    }
+  }
+  return '';
+}
+
+function impDragOver(e) { e.preventDefault(); document.getElementById('imp-dropzone').style.borderColor='var(--acc)'; }
+function impDrop(e) {
+  e.preventDefault();
+  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  const file = e.dataTransfer.files[0];
+  if (file) processImpFile(file);
+}
+function impFileChosen(input) { if (input.files[0]) processImpFile(input.files[0]); }
+
+function processImpFile(file) {
+  if (file.size > 10*1024*1024) { snack('File too large (max 10 MB)', false); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      _impWorkbook = XLSX.read(data, { type: 'array', cellDates: true });
+      document.getElementById('imp-filename').textContent = file.name;
+
+      // Populate sheet selector if multiple sheets
+      const sheets = _impWorkbook.SheetNames;
+      const selRow = document.getElementById('imp-sheet-row');
+      const sel = document.getElementById('imp-sheet-sel');
+      sel.innerHTML = sheets.map(s=>`<option value="${s}">${s}</option>`).join('');
+      selRow.style.display = sheets.length > 1 ? 'block' : 'none';
+
+      loadSheetPreview(_impWorkbook.SheetNames[0]);
+      document.getElementById('imp-preview').style.display = 'block';
+      document.getElementById('imp-upload-card').style.marginBottom='16px';
+    } catch(err) { snack('Could not read file: '+err.message, false); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function impSheetChange() { loadSheetPreview(document.getElementById('imp-sheet-sel').value); }
+
+function loadSheetPreview(sheetName) {
+  const ws = _impWorkbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+  if (!rows.length) { snack('Sheet is empty', false); return; }
+
+  // Find header row (first non-empty row)
+  let headerIdx = 0;
+  for (let i=0; i<Math.min(5,rows.length); i++) {
+    if (rows[i].some(c=>String(c||'').trim())) { headerIdx=i; break; }
+  }
+  const headers = rows[headerIdx].map(h=>String(h||'').trim()).filter(Boolean);
+  const dataRows = rows.slice(headerIdx+1).filter(r=>r.some(c=>String(c||'').trim()));
+
+  _impType = detectDataType(headers);
+  _impParsedRows = dataRows.map(r => {
+    const obj = {};
+    headers.forEach((h,i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
+    return obj;
   });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  document.getElementById('imp-row-count').textContent = _impParsedRows.length;
+
+  // Build column mapping UI
+  const fields = TYPE_FIELDS[_impType] || TYPE_FIELDS.transactions;
+  document.getElementById('imp-mapping-area').innerHTML = `
+    <div style="background:var(--bg4);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
+        Column mapping — match your columns to the right fields
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+        ${fields.map(f => `
+          <div>
+            <label class="form-label">${f.label}</label>
+            <select id="map_${f.key}" style="width:100%">
+              <option value="">(skip)</option>
+              ${headers.map(h=>`<option value="${h}" ${bestMatch(f.match,headers)===h?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <label class="form-label" style="margin:0">Importing as:</label>
+        <select id="imp-type-override" style="width:160px" onchange="impTypeOverride()">
+          <option value="transactions" ${_impType==='transactions'?'selected':''}>Transactions</option>
+          <option value="investments" ${_impType==='investments'?'selected':''}>Investments</option>
+          <option value="goals" ${_impType==='goals'?'selected':''}>Goals</option>
+          <option value="events" ${_impType==='events'?'selected':''}>Events</option>
+          <option value="notes" ${_impType==='notes'?'selected':''}>Notes / diary</option>
+        </select>
+      </div>
+    </div>`;
+
+  // Render preview table (first 20 rows)
+  const preview = _impParsedRows.slice(0,20);
+  document.getElementById('imp-table-wrap').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;min-width:600px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${headers.map(h=>`<th style="padding:7px 10px;text-align:left;color:var(--text2);font-size:11px;white-space:nowrap">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${preview.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+          ${headers.map(h=>`<td style="padding:6px 10px;color:var(--text);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis">${r[h]??''}</td>`).join('')}
+        </tr>`).join('')}
+        ${_impParsedRows.length>20?`<tr><td colspan="${headers.length}" style="padding:8px 10px;color:var(--text3);font-size:11px">… and ${_impParsedRows.length-20} more rows</td></tr>`:''}
+      </tbody>
+    </table>`;
+}
+
+function impTypeOverride() {
+  _impType = document.getElementById('imp-type-override').value;
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  // Re-render mapping with new fields
+  const ws = _impWorkbook.Sheets[document.getElementById('imp-sheet-sel').value || _impWorkbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+  const headerIdx = rows.findIndex(r=>r.some(c=>String(c||'').trim()));
+  const headers = rows[headerIdx].map(h=>String(h||'').trim()).filter(Boolean);
+  const fields = TYPE_FIELDS[_impType];
+  const mapArea = document.getElementById('imp-mapping-area').querySelector('div > div');
+  if (mapArea) mapArea.innerHTML = fields.map(f => `
+    <div>
+      <label class="form-label">${f.label}</label>
+      <select id="map_${f.key}" style="width:100%">
+        <option value="">(skip)</option>
+        ${headers.map(h=>`<option value="${h}" ${bestMatch(f.match,headers)===h?'selected':''}>${h}</option>`).join('')}
+      </select>
+    </div>`).join('');
+}
+
+function parseExcelDate(val) {
+  if (!val) return new Date().toISOString().split('T')[0];
+  if (val instanceof Date) return val.toISOString().split('T')[0];
+  if (typeof val === 'number') {
+    // Excel serial date
+    const d = new Date((val - 25569) * 86400 * 1000);
+    return d.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  // Try DD/MM/YYYY
+  const ddmm = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (ddmm) {
+    const [,d,m,y] = ddmm;
+    const year = y.length===2 ? '20'+y : y;
+    return `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  const parsed = new Date(s);
+  if (!isNaN(parsed)) return parsed.toISOString().split('T')[0];
+  return new Date().toISOString().split('T')[0];
+}
+
+function getMapping(key) {
+  const el = document.getElementById('map_'+key);
+  return el ? el.value : '';
+}
+
+function getMapped(row, key) {
+  const col = getMapping(key);
+  return col ? String(row[col]??'').trim() : '';
+}
+
+function impCommit() {
+  if (!_impParsedRows.length) { snack('Nothing to import', false); return; }
+  const type = _impType;
+  const existing = lsGet(type==='investments'?'holdings':type);
+  let added = 0, skipped = 0;
+
+  _impParsedRows.forEach(row => {
+    let record = { id: uid() };
+    let valid = false;
+
+    if (type === 'transactions') {
+      const desc = getMapped(row,'desc') || 'Imported';
+      const amount = parseFloat(getMapped(row,'amount').replace(/[£,]/g,''))||0;
+      const date = parseExcelDate(getMapped(row,'date')||row[Object.keys(row).find(k=>k.toLowerCase().includes('date'))||'']);
+      const txnType = getMapped(row,'type').toLowerCase();
+      const typeNorm = txnType.includes('exp') ? 'expense' : txnType.includes('sav') ? 'savings' : 'income';
+      const cat = getMapped(row,'cat') || 'Other';
+      if (amount > 0) { record = { ...record, type:typeNorm, desc, amount, date, cat }; valid=true; }
+    } else if (type === 'investments') {
+      const name = getMapped(row,'name') || 'Unnamed';
+      const itype = getMapped(row,'type') || 'other';
+      const cost = parseFloat(getMapped(row,'cost').replace(/[£,]/g,''))||0;
+      const val  = parseFloat(getMapped(row,'val').replace(/[£,]/g,''))||cost;
+      if (name) { record = { ...record, name, type:itype, cost, val }; valid=true; }
+    } else if (type === 'goals') {
+      const title = getMapped(row,'title') || 'Unnamed goal';
+      const cat = getMapped(row,'cat') || 'life';
+      const target = parseExcelDate(getMapped(row,'target'));
+      const progress = parseInt(getMapped(row,'progress'))||0;
+      const notes = getMapped(row,'notes');
+      record = { ...record, title, cat, target, progress, notes }; valid=true;
+    } else if (type === 'events') {
+      const title = getMapped(row,'title') || 'Unnamed event';
+      const date = parseExcelDate(getMapped(row,'date'));
+      const tag = getMapped(row,'tag') || 'reminder';
+      const notes = getMapped(row,'notes');
+      record = { ...record, title, date, tag, notes }; valid=true;
+    } else if (type === 'notes') {
+      const title = getMapped(row,'title') || 'Imported note';
+      const content = getMapped(row,'content') || '';
+      const ntype = getMapped(row,'type') || 'note';
+      const date = parseExcelDate(getMapped(row,'date'));
+      if (content) { record = { ...record, type:ntype, title, content, date }; valid=true; }
+    }
+
+    if (valid) { existing.push(record); added++; }
+    else skipped++;
+  });
+
+  const storeKey = type==='investments' ? 'holdings' : type;
+  lsSet(storeKey, existing);
+  snack(`✓ Imported ${added} ${type}${skipped?' ('+skipped+' skipped)':''}`);
+  impReset();
+}
+
+function impReset() {
+  _impWorkbook = null; _impParsedRows = []; _impType = null;
+  document.getElementById('imp-preview').style.display = 'none';
+  document.getElementById('imp-file').value = '';
+}
+
+/* ---- TEMPLATES ---- */
+const TEMPLATES = {
+  transactions: [['type','desc','amount','date','cat'],['income','Monthly salary','3000','2026-06-01','Salary'],['expense','Grocery shopping','85.50','2026-06-03','Food']],
+  investments:  [['name','type','cost','val'],['VWRL ETF','stock','5000','6200'],['Bitcoin','crypto','1000','1350']],
+  goals:        [['title','cat','target','progress','notes'],['Buy a house','finance','2028-01-01','25','Save for deposit'],['Travel Japan','travel','2027-06-01','10','']],
+  events:       [['title','date','tag','notes'],['Dentist appointment','2026-07-15','reminder',''],['Annual review','2026-09-01','finance','Salary discussion']],
+};
+
+function downloadTemplate(type) {
+  const rows = TEMPLATES[type];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, type);
+  XLSX.writeFile(wb, `template_${type}.xlsx`);
+}
+
+/* ---- EXPORT ---- */
+function exportData(section) {
+  if (section === 'all') {
+    const allData = {};
+    Object.keys(STORES).forEach(k => { allData[k] = lsGet(k); });
+    const blob = new Blob([JSON.stringify(allData, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `mylifehq_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click(); return;
+  }
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+  if (!data.length) { snack('No data to export', false); return; }
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, section);
+  XLSX.writeFile(wb, `${section}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  snack('Exported '+data.length+' rows');
+}
+
+/* ---- DATA MANAGER ---- */
+function dmLoad() {
+  const section = document.getElementById('dm-section').value;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+
+  if (!data.length) {
+    document.getElementById('dm-table-wrap').innerHTML = '<div class="empty-state"><i class="ti ti-database-off"></i><p>No data in this section</p></div>';
+    return;
+  }
+
+  const keys = Object.keys(data[0]).filter(k=>k!=='id');
+  document.getElementById('dm-table-wrap').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${keys.map(k=>`<th style="padding:8px 10px;text-align:left;color:var(--text2);font-size:11px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em">${k}</th>`).join('')}
+        <th style="padding:8px 10px;text-align:left;color:var(--text2);font-size:11px">Actions</th>
+      </tr></thead>
+      <tbody>
+        ${data.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.04)" id="dmr_${r.id}">
+          ${keys.map(k=>`<td style="padding:7px 10px;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" contenteditable="true" onblur="dmEdit('${section}','${r.id}','${k}',this.textContent)">${r[k]??''}</td>`).join('')}
+          <td style="padding:7px 10px;white-space:nowrap">
+            <button class="btn btn-danger btn-sm" onclick="dmDelete('${section}','${r.id}')"><i class="ti ti-trash"></i></button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function dmEdit(section, id, key, value) {
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+  const rec = data.find(r=>r.id===id);
+  if (rec) { rec[key] = value; lsSet(storeKey, data); snack('Saved'); }
+}
+
+function dmDelete(section, id) {
+  if (!confirm('Delete this record?')) return;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  lsSet(storeKey, lsGet(storeKey).filter(r=>r.id!==id));
+  snack('Deleted'); dmLoad();
+}
+
+function dmClearSection() {
+  const section = document.getElementById('dm-section').value;
+  if (!confirm('Delete ALL records in "'+section+'"? This cannot be undone.')) return;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  lsSet(storeKey, []);
+  snack('Section cleared'); dmLoad();
+}
+
+function dmClearAll() {
+  if (!confirm('Delete ALL your data from every section? This cannot be undone.')) return;
+  Object.values(STORES).forEach(k => localStorage.removeItem(k));
+  snack('All data cleared'); dmLoad();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -599,7 +1139,9 @@ function goTo(p) {
     diary: loadNotes,
     calendar: loadCalendar,
     goals: loadGoals,
-    forecast: buildForecast
+    forecast: buildForecast,
+    import: () => {},
+    datamanager: dmLoad
   };
   if (loaders[p]) loaders[p]();
 }
