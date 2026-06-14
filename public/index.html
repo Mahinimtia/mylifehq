@@ -608,7 +608,7 @@ function goTo(p) {
 async function loadDashboard() {
   const today = new Date();
   const h = today.getHours();
-  const greet = h<12?'Good morning':'h<17?'Good afternoon':'Good evening';
+  const greet = h<12?'Good morning':h<17?'Good afternoon':'Good evening';
   document.getElementById('dash-greeting').textContent = (h<12?'Good morning 🌅':h<17?'Good afternoon ☀️':'Good evening 🌙');
   document.getElementById('dash-date').textContent = today.toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
