@@ -6,7 +6,7 @@
 <title>My Life HQ</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -472,9 +472,9 @@ select option{background:var(--bg2)}
   <!-- Upload zone -->
   <div class="card mb" id="imp-upload-card">
     <div class="card-hdr"><span class="card-title"><i class="ti ti-file-spreadsheet"></i> Upload Excel / CSV file</span></div>
-    <div id="imp-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:50px 20px;text-align:center;cursor:pointer;transition:.2s" onclick="document.getElementById('imp-file').click()" ondragover="impDragOver(event)" ondrop="impDrop(event)">
+    <div id="imp-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:50px 20px;text-align:center;cursor:pointer;transition:.2s" ondragover="impDragOver(event)" ondragleave="impDragLeave(event)" ondrop="impDrop(event)">
       <i class="ti ti-cloud-upload" style="font-size:42px;color:var(--text3);display:block;margin-bottom:12px"></i>
-      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Drop your file here or click to browse</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Drop your file here or <span style="color:var(--acc);text-decoration:underline;cursor:pointer" onclick="document.getElementById('imp-file').click()">click to browse</span></div>
       <div style="font-size:12px;color:var(--text3)">Supports .xlsx, .xls, .csv — max 10MB</div>
       <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="impFileChosen(this)">
     </div>
@@ -800,66 +800,159 @@ function bestMatch(fieldMatches, headers) {
   return '';
 }
 
-function impDragOver(e) { e.preventDefault(); document.getElementById('imp-dropzone').style.borderColor='var(--acc)'; }
+function impDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('imp-dropzone').style.borderColor='var(--acc)';
+  document.getElementById('imp-dropzone').style.background='rgba(99,102,241,.06)';
+}
+function impDragLeave(e) {
+  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  document.getElementById('imp-dropzone').style.background='';
+}
 function impDrop(e) {
   e.preventDefault();
-  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  e.stopPropagation();
+  impDragLeave(e);
   const file = e.dataTransfer.files[0];
   if (file) processImpFile(file);
 }
-function impFileChosen(input) { if (input.files[0]) processImpFile(input.files[0]); }
+function impFileChosen(input) {
+  if (input.files && input.files[0]) processImpFile(input.files[0]);
+}
 
 function processImpFile(file) {
   if (file.size > 10*1024*1024) { snack('File too large (max 10 MB)', false); return; }
+
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  // If XLSX library isn't loaded yet, try waiting or fall back
+  if (typeof XLSX === 'undefined') {
+    snack('Spreadsheet library still loading, please try again in a moment', false);
+    return;
+  }
+
   const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = new Uint8Array(e.target.result);
-      _impWorkbook = XLSX.read(data, { type: 'array', cellDates: true });
-      document.getElementById('imp-filename').textContent = file.name;
 
-      // Populate sheet selector if multiple sheets
-      const sheets = _impWorkbook.SheetNames;
-      const selRow = document.getElementById('imp-sheet-row');
-      const sel = document.getElementById('imp-sheet-sel');
-      sel.innerHTML = sheets.map(s=>`<option value="${s}">${s}</option>`).join('');
-      selRow.style.display = sheets.length > 1 ? 'block' : 'none';
+  reader.onerror = () => snack('Could not read file — please try again', false);
 
-      loadSheetPreview(_impWorkbook.SheetNames[0]);
-      document.getElementById('imp-preview').style.display = 'block';
-      document.getElementById('imp-upload-card').style.marginBottom='16px';
-    } catch(err) { snack('Could not read file: '+err.message, false); }
-  };
-  reader.readAsArrayBuffer(file);
+  if (ext === 'csv') {
+    // Read CSV as text
+    reader.onload = e => {
+      try {
+        const text = e.target.result;
+        const wb = XLSX.read(text, { type: 'string', raw: false });
+        _impWorkbook = wb;
+        setupWorkbookUI(file.name, wb);
+      } catch(err) {
+        // Manual CSV parse fallback
+        try {
+          const rows = parseCSVManual(e.target.result);
+          _impWorkbook = null;
+          _impManualRows = rows;
+          setupManualRowsUI(file.name, rows);
+        } catch(err2) {
+          snack('Could not parse CSV: ' + err2.message, false);
+        }
+      }
+    };
+    reader.readAsText(file);
+  } else {
+    // Read Excel as binary
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' });
+        _impWorkbook = wb;
+        setupWorkbookUI(file.name, wb);
+      } catch(err) {
+        snack('Could not read Excel file: ' + err.message, false);
+        console.error('Excel read error:', err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+let _impManualRows = null;
+
+function parseCSVManual(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g,'').trim());
+  const rows = lines.slice(1).map(line => {
+    const vals = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g) || line.split(',');
+    const obj = {};
+    headers.forEach((h,i) => { obj[h] = (vals[i]||'').replace(/^"|"$/g,'').trim(); });
+    return obj;
+  });
+  return { headers, rows };
+}
+
+function setupWorkbookUI(filename, wb) {
+  document.getElementById('imp-filename').textContent = filename;
+  const sheets = wb.SheetNames;
+  const sel = document.getElementById('imp-sheet-sel');
+  sel.innerHTML = sheets.map(s=>`<option value="${s}">${s}</option>`).join('');
+  document.getElementById('imp-sheet-row').style.display = sheets.length > 1 ? 'block' : 'none';
+  document.getElementById('imp-preview').style.display = 'block';
+  loadSheetPreview(sheets[0]);
+}
+
+function setupManualRowsUI(filename, parsed) {
+  document.getElementById('imp-filename').textContent = filename;
+  document.getElementById('imp-sheet-row').style.display = 'none';
+  document.getElementById('imp-preview').style.display = 'block';
+
+  const { headers, rows } = parsed;
+  _impParsedRows = rows;
+  _impType = detectDataType(headers);
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  document.getElementById('imp-row-count').textContent = rows.length;
+  renderMappingAndTable(headers);
 }
 
 function impSheetChange() { loadSheetPreview(document.getElementById('imp-sheet-sel').value); }
 
 function loadSheetPreview(sheetName) {
+  if (!_impWorkbook) return;
   const ws = _impWorkbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-  if (!rows.length) { snack('Sheet is empty', false); return; }
+  if (!ws) { snack('Could not read sheet', false); return; }
 
-  // Find header row (first non-empty row)
-  let headerIdx = 0;
-  for (let i=0; i<Math.min(5,rows.length); i++) {
-    if (rows[i].some(c=>String(c||'').trim())) { headerIdx=i; break; }
+  let rows;
+  try {
+    rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
+  } catch(e) {
+    snack('Error reading sheet: '+e.message, false); return;
   }
+
+  if (!rows || !rows.length) { snack('Sheet appears to be empty', false); return; }
+
+  // Find first non-empty row as header
+  let headerIdx = 0;
+  for (let i=0; i<Math.min(8,rows.length); i++) {
+    if (rows[i] && rows[i].some(c=>String(c||'').trim())) { headerIdx=i; break; }
+  }
+
   const headers = rows[headerIdx].map(h=>String(h||'').trim()).filter(Boolean);
-  const dataRows = rows.slice(headerIdx+1).filter(r=>r.some(c=>String(c||'').trim()));
+  if (!headers.length) { snack('No column headers found in sheet', false); return; }
+
+  const dataRows = rows.slice(headerIdx+1).filter(r => r && r.some(c=>String(c||'').trim()));
 
   _impType = detectDataType(headers);
   _impParsedRows = dataRows.map(r => {
     const obj = {};
-    headers.forEach((h,i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
+    headers.forEach((h,i) => { obj[h] = r[i] !== undefined ? String(r[i]) : ''; });
     return obj;
   });
 
   document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
   document.getElementById('imp-row-count').textContent = _impParsedRows.length;
+  renderMappingAndTable(headers);
+}
 
-  // Build column mapping UI
+function renderMappingAndTable(headers) {
   const fields = TYPE_FIELDS[_impType] || TYPE_FIELDS.transactions;
+
   document.getElementById('imp-mapping-area').innerHTML = `
     <div style="background:var(--bg4);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
@@ -878,7 +971,7 @@ function loadSheetPreview(sheetName) {
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
         <label class="form-label" style="margin:0">Importing as:</label>
-        <select id="imp-type-override" style="width:160px" onchange="impTypeOverride()">
+        <select id="imp-type-override" style="width:160px" onchange="impTypeOverride(this.value)">
           <option value="transactions" ${_impType==='transactions'?'selected':''}>Transactions</option>
           <option value="investments" ${_impType==='investments'?'selected':''}>Investments</option>
           <option value="goals" ${_impType==='goals'?'selected':''}>Goals</option>
@@ -888,9 +981,8 @@ function loadSheetPreview(sheetName) {
       </div>
     </div>`;
 
-  // Render preview table (first 20 rows)
   const preview = _impParsedRows.slice(0,20);
-  document.getElementById('imp-table-wrap').innerHTML = `
+  document.getElementById('imp-table-wrap').innerHTML = preview.length ? `
     <table style="width:100%;border-collapse:collapse;min-width:600px">
       <thead><tr style="border-bottom:1px solid var(--border)">
         ${headers.map(h=>`<th style="padding:7px 10px;text-align:left;color:var(--text2);font-size:11px;white-space:nowrap">${h}</th>`).join('')}
@@ -901,27 +993,15 @@ function loadSheetPreview(sheetName) {
         </tr>`).join('')}
         ${_impParsedRows.length>20?`<tr><td colspan="${headers.length}" style="padding:8px 10px;color:var(--text3);font-size:11px">… and ${_impParsedRows.length-20} more rows</td></tr>`:''}
       </tbody>
-    </table>`;
+    </table>` : '<div class="empty-state"><p>No data rows found</p></div>';
 }
 
-function impTypeOverride() {
-  _impType = document.getElementById('imp-type-override').value;
+function impTypeOverride(newType) {
+  _impType = newType;
   document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
-  // Re-render mapping with new fields
-  const ws = _impWorkbook.Sheets[document.getElementById('imp-sheet-sel').value || _impWorkbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
-  const headerIdx = rows.findIndex(r=>r.some(c=>String(c||'').trim()));
-  const headers = rows[headerIdx].map(h=>String(h||'').trim()).filter(Boolean);
-  const fields = TYPE_FIELDS[_impType];
-  const mapArea = document.getElementById('imp-mapping-area').querySelector('div > div');
-  if (mapArea) mapArea.innerHTML = fields.map(f => `
-    <div>
-      <label class="form-label">${f.label}</label>
-      <select id="map_${f.key}" style="width:100%">
-        <option value="">(skip)</option>
-        ${headers.map(h=>`<option value="${h}" ${bestMatch(f.match,headers)===h?'selected':''}>${h}</option>`).join('')}
-      </select>
-    </div>`).join('');
+  // Re-get headers from current parsed rows
+  const headers = _impParsedRows.length ? Object.keys(_impParsedRows[0]) : [];
+  if (headers.length) renderMappingAndTable(headers);
 }
 
 function parseExcelDate(val) {
@@ -1011,9 +1091,13 @@ function impCommit() {
 }
 
 function impReset() {
-  _impWorkbook = null; _impParsedRows = []; _impType = null;
+  _impWorkbook = null; _impParsedRows = []; _impType = null; _impManualRows = null;
   document.getElementById('imp-preview').style.display = 'none';
-  document.getElementById('imp-file').value = '';
+  const fi = document.getElementById('imp-file');
+  fi.value = '';
+  // Reset dropzone style
+  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  document.getElementById('imp-dropzone').style.background='';
 }
 
 /* ---- TEMPLATES ---- */
