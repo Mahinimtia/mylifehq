@@ -514,6 +514,7 @@ select option{background:var(--bg2)}
         <button class="btn btn-primary" onclick="impCommit()"><i class="ti ti-database-import"></i> Import <span id="imp-row-count"></span> rows</button>
         <div style="font-size:12px;color:var(--text2)">Existing data will be <strong>kept</strong> — rows are added, not replaced</div>
       </div>
+      <div id="imp-debug" style="display:none"></div>
     </div>
   </div>
 
@@ -1040,74 +1041,209 @@ function getMapped(row, key) {
   return col ? String(row[col]??'').trim() : '';
 }
 
+function getAnyCol(row, ...keywords) {
+  // First try the mapping dropdown
+  for (const kw of keywords) {
+    const col = getMapping(kw);
+    if (col && row[col] !== undefined && String(row[col]).trim() !== '') {
+      return String(row[col]).trim();
+    }
+  }
+  // Fallback: scan all column headers for keyword match
+  const keys = Object.keys(row);
+  for (const kw of keywords) {
+    const found = keys.find(k => k.toLowerCase().includes(kw.toLowerCase()));
+    if (found && String(row[found]).trim() !== '') return String(row[found]).trim();
+  }
+  return '';
+}
+
+function parseAmt(str) {
+  if (str === '' || str === undefined || str === null) return 0;
+  // Handle expressions like "1,315 + 650 = 1,965" — take the last number
+  const s = String(str);
+  const matches = s.match(/[\d,]+\.?\d*/g);
+  if (!matches) return 0;
+  // Take the last number (usually the total in expressions)
+  const last = matches[matches.length - 1].replace(/,/g, '');
+  const n = parseFloat(last);
+  return isNaN(n) ? 0 : Math.abs(n);
+}
+
+function guessType(str) {
+  const s = String(str||'').toLowerCase().trim();
+  if (!s) return 'income';
+  if (s.includes('exp') || s.includes('debit') || s.includes('out') || s.includes('withdrawal') || s.includes('spend') || s.includes('cost') || s.includes('payment')) return 'expense';
+  if (s.includes('sav') || s.includes('transfer') || s.includes('deposit')) return 'savings';
+  return 'income';
+}
+
+// Detect if file is a payroll/budget format (has gross pay, net income, expenses columns)
+function isPayrollFormat(headers) {
+  const h = headers.map(x => String(x||'').toLowerCase()).join(' ');
+  return (h.includes('gross') || h.includes('net income') || h.includes('net movement')) &&
+         (h.includes('expense') || h.includes('tax'));
+}
+
 function impCommit() {
   if (!_impParsedRows.length) { snack('Nothing to import', false); return; }
+
+  const headers = Object.keys(_impParsedRows[0]);
+
+  // ── PAYROLL / BUDGET FORMAT (your Finance.csv) ──────────────────────
+  if (isPayrollFormat(headers)) {
+    importPayrollFormat(_impParsedRows, headers);
+    return;
+  }
+
+  // ── GENERIC FORMAT ───────────────────────────────────────────────────
   const type = _impType;
   const storeKey = type==='investments' ? 'holdings' : type;
   const existing = lsGet(storeKey);
-  let added = 0, skipped = 0;
+  let added = 0;
+  const skipReasons = [];
 
-  _impParsedRows.forEach(row => {
-    let record = { id: uid() };
-    let valid = false;
+  _impParsedRows.forEach((row, idx) => {
+    const record = { id: uid() };
 
     if (type === 'transactions') {
-      const desc   = getMapped(row,'desc') || 'Imported';
-      const rawAmt = getMapped(row,'amount').replace(/[£,\s]/g,'');
-      const amount = parseFloat(rawAmt) || 0;
-      const rawDate = getMapped(row,'date') || '';
-      const date   = parseExcelDate(rawDate || String(Object.values(row).find(v=>String(v).match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/))||''));
-      const rawType = getMapped(row,'type').toLowerCase();
-      const txnType = rawType.includes('exp') ? 'expense' : rawType.includes('sav') ? 'savings' : 'income';
-      const cat    = getMapped(row,'cat') || 'Other';
-      if (amount > 0) { record = { ...record, type:txnType, desc, amount, date, cat }; valid=true; }
-      else { skipped++; return; }
+      const amount = parseAmt(getAnyCol(row, 'amount','amt','value','sum','total','£','price','money','net'));
+      const desc   = getAnyCol(row, 'desc','description','name','detail','memo','narration','particulars','reference','ref','notes','note') || 'Imported row '+(idx+1);
+      const rawDate= getAnyCol(row, 'date','time','datetime','day','period');
+      const date   = parseExcelDate(rawDate);
+      const rawType= getAnyCol(row, 'type','category','kind','direction','flow','credit','debit');
+      const txnType= guessType(rawType);
+      const cat    = getAnyCol(row, 'cat','category','tag','label','group','class') || 'Other';
+
+      if (amount <= 0) {
+        skipReasons.push(`Row ${idx+2}: amount is 0 or missing (raw value: "${getAnyCol(row,'amount','amt','value','sum','total','net')}")`);
+        return;
+      }
+      Object.assign(record, { type:txnType, desc, amount, date, cat });
 
     } else if (type === 'investments') {
-      const name  = getMapped(row,'name') || 'Unnamed';
-      const itype = getMapped(row,'type') || 'other';
-      const cost  = parseFloat((getMapped(row,'cost')||'0').replace(/[£,\s]/g,'')) || 0;
-      const val   = parseFloat((getMapped(row,'val')||'0').replace(/[£,\s]/g,''))  || cost;
-      record = { ...record, name, type:itype, cost, val }; valid=true;
+      const name  = getAnyCol(row, 'name','ticker','asset','holding','stock','fund','symbol') || 'Unnamed '+(idx+1);
+      const itype = getAnyCol(row, 'type','asset','class') || 'other';
+      const cost  = parseAmt(getAnyCol(row, 'cost','invested','purchase','buy','paid','bought','initial'));
+      const val   = parseAmt(getAnyCol(row, 'val','value','current','worth','market','price','now')) || cost;
+      Object.assign(record, { name, type:itype, cost, val });
 
     } else if (type === 'goals') {
-      const title    = getMapped(row,'title') || 'Unnamed goal';
-      const cat      = getMapped(row,'cat') || 'life';
-      const target   = parseExcelDate(getMapped(row,'target'));
-      const progress = Math.min(100, Math.max(0, parseInt(getMapped(row,'progress'))||0));
-      const notes    = getMapped(row,'notes');
-      record = { ...record, title, cat, target, progress, notes }; valid=true;
+      const title   = getAnyCol(row, 'title','goal','name','objective') || 'Goal '+(idx+1);
+      const cat     = getAnyCol(row, 'cat','category','type','area') || 'life';
+      const target  = parseExcelDate(getAnyCol(row, 'target','date','deadline','by','due'));
+      const progress= Math.min(100, Math.max(0, parseInt(getAnyCol(row, 'progress','pct','percent','%','done','complete'))||0));
+      const notes   = getAnyCol(row, 'notes','note','detail','description','comment');
+      Object.assign(record, { title, cat, target, progress, notes });
 
     } else if (type === 'events') {
-      const title = getMapped(row,'title') || 'Unnamed event';
-      const date  = parseExcelDate(getMapped(row,'date'));
-      const tag   = getMapped(row,'tag') || 'reminder';
-      const notes = getMapped(row,'notes');
-      record = { ...record, title, date, tag, notes }; valid=true;
+      const title = getAnyCol(row, 'title','event','name','subject','description') || 'Event '+(idx+1);
+      const date  = parseExcelDate(getAnyCol(row, 'date','time','day','when'));
+      const tag   = getAnyCol(row, 'tag','type','category','label') || 'reminder';
+      const notes = getAnyCol(row, 'notes','note','detail','description','comment');
+      Object.assign(record, { title, date, tag, notes });
 
     } else if (type === 'notes') {
-      const title   = getMapped(row,'title') || 'Imported note';
-      const content = getMapped(row,'content') || '';
-      const ntype   = getMapped(row,'type') || 'note';
-      const date    = parseExcelDate(getMapped(row,'date'));
-      if (content) { record = { ...record, type:ntype, title, content, date }; valid=true; }
-      else { skipped++; return; }
+      const title   = getAnyCol(row, 'title','name','subject','heading') || 'Note '+(idx+1);
+      const content = getAnyCol(row, 'content','body','text','entry','note','notes','detail','description');
+      const ntype   = getAnyCol(row, 'type','kind','category') || 'note';
+      const date    = parseExcelDate(getAnyCol(row, 'date','time','day'));
+      if (!content) { skipReasons.push(`Row ${idx+2}: no content found`); return; }
+      Object.assign(record, { type:ntype, title, content, date });
     }
 
-    if (valid) { existing.push(record); added++; }
-    else skipped++;
+    existing.push(record);
+    added++;
   });
 
   lsSet(storeKey, existing);
-  snack(`✓ Imported ${added} record${added!==1?'s':''}${skipped?' ('+skipped+' skipped)':''}`);
-  impReset();
+  finishImport(added, skipReasons, type);
+}
 
-  // Refresh whichever pages are affected
+function importPayrollFormat(rows, headers) {
+  // Find column names flexibly
+  const col = (keywords) => headers.find(h => keywords.some(kw => h.toLowerCase().includes(kw))) || '';
+  const dateCol    = col(['date','period','pay']);
+  const detailCol  = col(['detail','description','name','narration']);
+  const grossCol   = col(['gross']);
+  const taxCol     = col(['tax','ni','deduction']);
+  const netIncCol  = col(['net income','net inc','take home','takehome']);
+  const expCol     = col(['expense','expenses','spend']);
+  const balCol     = col(['balance','running','total']);
+
+  const txns = lsGet('transactions');
+  let added = 0;
+  const skipReasons = [];
+
+  rows.forEach((row, idx) => {
+    const dateRaw = String(row[dateCol]||'').trim();
+    // Skip rows with no real date (like "Current (15 May)" header rows)
+    const date = parseExcelDate(dateRaw);
+    if (!date || date === new Date().toISOString().split('T')[0] && !dateRaw.match(/\d{4}/)) {
+      // Try to see if it's a string date we can't parse — skip balance rows
+      if (!dateRaw.match(/\d/) || dateRaw.toLowerCase().includes('current')) {
+        skipReasons.push(`Row ${idx+2}: skipped — "${dateRaw}" is not a valid date`);
+        return;
+      }
+    }
+
+    const detail = String(row[detailCol]||'').trim() || 'Pay period';
+
+    // Income transaction: Net Income
+    const netIncome = parseAmt(row[netIncCol] || row[grossCol]);
+    if (netIncome > 0) {
+      const grossVal = parseAmt(row[grossCol]);
+      const taxVal   = parseAmt(row[taxCol]);
+      txns.push({ id:uid(), type:'income', desc: detail + ' — Net Pay', amount: netIncome, date, cat:'Salary',
+        _gross: grossVal, _tax: taxVal });
+      added++;
+    }
+
+    // Expense transaction
+    const expAmt = parseAmt(row[expCol]);
+    if (expAmt > 0) {
+      txns.push({ id:uid(), type:'expense', desc: detail + ' — Expenses', amount: expAmt, date, cat:'Other' });
+      added++;
+    }
+
+    // Running balance snapshot — store as savings if balance column present
+    const bal = balCol ? parseAmt(row[balCol]) : 0;
+    if (bal > 0 && netIncome === 0 && expAmt === 0) {
+      // Just a balance row, skip
+      skipReasons.push(`Row ${idx+2}: balance-only row skipped`);
+    }
+  });
+
+  lsSet('transactions', txns);
+  finishImport(added, skipReasons, 'transactions');
+}
+
+function finishImport(added, skipReasons, type) {
+  if (skipReasons.length > 0) {
+    console.warn('Skipped rows:', skipReasons);
+  }
+
+  if (added === 0) {
+    snack(`⚠ No rows imported — ${skipReasons.length} skipped`, false);
+    const dbg = document.getElementById('imp-debug');
+    if (dbg) {
+      dbg.style.display = 'block';
+      dbg.innerHTML = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:14px;margin-top:12px">
+        <div style="font-weight:600;color:var(--red);margin-bottom:8px">⚠ All rows skipped. Reasons:</div>
+        ${skipReasons.slice(0,10).map(r=>`<div style="font-size:12px;color:var(--text2);margin-bottom:3px">• ${r}</div>`).join('')}
+        ${skipReasons.length>10?`<div style="font-size:11px;color:var(--text3)">…and ${skipReasons.length-10} more</div>`:''}
+      </div>`;
+    }
+    return;
+  }
+
+  snack(`✓ Imported ${added} record${added!==1?'s':''}${skipReasons.length?' ('+skipReasons.length+' rows skipped)':''}`);
+  impReset();
   loadDashboard();
-  if (type === 'transactions') loadFinance();
-  if (type === 'investments') loadInvest();
-  if (type === 'goals') loadGoals();
-  if (type === 'events') loadCalendar();
+  if (type==='transactions') loadFinance();
+  if (type==='investments')  loadInvest();
+  if (type==='goals')        loadGoals();
+  if (type==='events')       loadCalendar();
 }
 
 function impReset() {
@@ -1115,9 +1251,10 @@ function impReset() {
   document.getElementById('imp-preview').style.display = 'none';
   const fi = document.getElementById('imp-file');
   fi.value = '';
-  // Reset dropzone style
   document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
   document.getElementById('imp-dropzone').style.background='';
+  const dbg = document.getElementById('imp-debug');
+  if (dbg) { dbg.style.display='none'; dbg.innerHTML=''; }
 }
 
 /* ---- TEMPLATES ---- */
