@@ -6,6 +6,7 @@
 <title>My Life HQ</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -211,6 +212,10 @@ select option{background:var(--bg2)}
     <button class="nav-item" onclick="goTo('diary')"><i class="ti ti-notebook"></i> Diary & notes</button>
     <button class="nav-item" onclick="goTo('calendar')"><i class="ti ti-calendar"></i> Calendar</button>
     <button class="nav-item" onclick="goTo('goals')"><i class="ti ti-target"></i> Life planning</button>
+
+    <div class="nav-sec">Data</div>
+    <button class="nav-item" onclick="goTo('import')"><i class="ti ti-table-import"></i> Import / Export</button>
+    <button class="nav-item" onclick="goTo('datamanager')"><i class="ti ti-database"></i> Data manager</button>
   </nav>
   <div class="sidebar-footer">
     <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="openModal('m-txn')">
@@ -458,6 +463,96 @@ select option{background:var(--bg2)}
   <div id="goals-list"></div>
 </div>
 
+<!-- ===== IMPORT / EXPORT ===== -->
+<div id="page-import" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-left"><h1>Import & Export</h1><p>Upload Excel or CSV files to bulk-load data — or export everything</p></div>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="card mb" id="imp-upload-card">
+    <div class="card-hdr"><span class="card-title"><i class="ti ti-file-spreadsheet"></i> Upload Excel / CSV file</span></div>
+    <div id="imp-dropzone" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:50px 20px;text-align:center;cursor:pointer;transition:.2s" ondragover="impDragOver(event)" ondragleave="impDragLeave(event)" ondrop="impDrop(event)">
+      <i class="ti ti-cloud-upload" style="font-size:42px;color:var(--text3);display:block;margin-bottom:12px"></i>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Drop your file here or <span style="color:var(--acc);text-decoration:underline;cursor:pointer" onclick="document.getElementById('imp-file').click()">click to browse</span></div>
+      <div style="font-size:12px;color:var(--text3)">Supports .xlsx, .xls, .csv — max 10MB</div>
+      <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="impFileChosen(this)">
+    </div>
+
+    <!-- Template downloads -->
+    <div style="margin-top:16px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Download blank templates</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('transactions')"><i class="ti ti-download"></i> Transactions</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('investments')"><i class="ti ti-download"></i> Investments</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('goals')"><i class="ti ti-download"></i> Goals</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate('events')"><i class="ti ti-download"></i> Events</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview area (hidden until file loaded) -->
+  <div id="imp-preview" style="display:none">
+    <div class="card mb">
+      <div class="card-hdr">
+        <span class="card-title"><i class="ti ti-eye"></i> Preview — <span id="imp-filename"></span></span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="imp-detect-badge" class="badge badge-info"></span>
+          <button class="btn btn-ghost btn-sm" onclick="impReset()"><i class="ti ti-x"></i> Cancel</button>
+        </div>
+      </div>
+      <!-- sheet selector -->
+      <div id="imp-sheet-row" style="display:none;margin-bottom:12px">
+        <label class="form-label">Sheet / section to import</label>
+        <select id="imp-sheet-sel" style="width:220px" onchange="impSheetChange()"></select>
+      </div>
+      <!-- column mapping -->
+      <div id="imp-mapping-area" style="margin-bottom:14px"></div>
+      <!-- table preview -->
+      <div id="imp-table-wrap" style="overflow-x:auto;max-height:300px;overflow-y:auto;font-size:12px"></div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" onclick="impCommit()"><i class="ti ti-database-import"></i> Import <span id="imp-row-count"></span> rows</button>
+        <div style="font-size:12px;color:var(--text2)">Existing data will be <strong>kept</strong> — rows are added, not replaced</div>
+      </div>
+      <div id="imp-debug" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Export -->
+  <div class="card">
+    <div class="card-hdr"><span class="card-title"><i class="ti ti-file-export"></i> Export your data</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="exportData('transactions')"><i class="ti ti-table-export"></i> Export transactions (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('investments')"><i class="ti ti-table-export"></i> Export investments (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('goals')"><i class="ti ti-table-export"></i> Export goals (CSV)</button>
+      <button class="btn btn-ghost" onclick="exportData('events')"><i class="ti ti-table-export"></i> Export events (CSV)</button>
+      <button class="btn btn-primary" onclick="exportData('all')"><i class="ti ti-archive"></i> Export ALL data (JSON)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DATA MANAGER ===== -->
+<div id="page-datamanager" class="page">
+  <div class="page-hdr">
+    <div class="page-hdr-left"><h1>Data manager</h1><p>View, edit and delete individual records directly</p></div>
+    <div style="display:flex;gap:8px">
+      <select id="dm-section" onchange="dmLoad()" style="width:170px">
+        <option value="transactions">Transactions</option>
+        <option value="investments">Investments</option>
+        <option value="goals">Goals</option>
+        <option value="events">Events</option>
+        <option value="budgetcats">Budget categories</option>
+        <option value="notes">Notes / diary</option>
+      </select>
+      <button class="btn btn-danger btn-sm" onclick="dmClearSection()"><i class="ti ti-trash"></i> Clear section</button>
+      <button class="btn btn-danger btn-sm" onclick="dmClearAll()" style="background:rgba(239,68,68,.2)"><i class="ti ti-database-off"></i> Clear ALL data</button>
+    </div>
+  </div>
+  <div class="card">
+    <div id="dm-table-wrap" style="overflow-x:auto;font-size:13px"></div>
+  </div>
+</div>
+
 </main>
 </div>
 
@@ -556,17 +651,666 @@ select option{background:var(--bg2)}
 <div class="snack" id="snack"></div>
 
 <script>
+/* ============================================================
+   API — talks to your live Railway backend
+   ============================================================ */
+
 const API = '/api';
 const fmt = n => '£' + Math.round(n).toLocaleString('en-GB');
 const pct = (a,b) => b===0 ? '0%' : (a/b*100).toFixed(1)+'%';
+const uid = () => Math.random().toString(36).slice(2,10);
 
 async function api(method, path, body) {
-  const r = await fetch(API+path, {
-    method, headers:{'Content-Type':'application/json'},
-    body: body ? JSON.stringify(body) : undefined
+  try {
+    const r = await fetch(API+path, {
+      method, headers:{'Content-Type':'application/json'},
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  } catch(e) {
+    console.error('API error:', method, path, e);
+    throw e;
+  }
+}
+
+/* ============================================================
+   IMPORT / EXPORT SYSTEM
+   ============================================================ */
+
+let _impWorkbook = null;
+let _impParsedRows = [];
+let _impType = null;
+
+// Detect what kind of data this sheet contains
+function detectDataType(headers) {
+  const h = headers.map(x => String(x||'').toLowerCase());
+  const join = h.join(' ');
+  if (join.includes('amount') && (join.includes('type') || join.includes('income') || join.includes('expense'))) return 'transactions';
+  if (join.includes('ticker') || join.includes('holding') || join.includes('invested') || (join.includes('value') && join.includes('cost'))) return 'investments';
+  if (join.includes('progress') || (join.includes('goal') && join.includes('cat'))) return 'goals';
+  if (join.includes('event') || (join.includes('title') && join.includes('date') && join.includes('tag'))) return 'events';
+  if (join.includes('amount') && join.includes('date') && join.includes('desc')) return 'transactions';
+  if (join.includes('amount') && join.includes('date')) return 'transactions';
+  if (join.includes('date')) return 'events';
+  if (join.includes('title') && join.includes('content')) return 'notes';
+  return 'transactions'; // default
+}
+
+// Map detected type to field definitions
+const TYPE_FIELDS = {
+  transactions: [
+    { key:'type',   label:'Type (income/expense/savings)', match:['type'] },
+    { key:'desc',   label:'Description',                   match:['desc','description','name','detail','details','memo'] },
+    { key:'amount', label:'Amount (£)',                    match:['amount','value','sum','total','£'] },
+    { key:'date',   label:'Date',                          match:['date'] },
+    { key:'cat',    label:'Category',                      match:['cat','category'] },
+  ],
+  investments: [
+    { key:'name',  label:'Name / Ticker',         match:['name','ticker','asset','holding'] },
+    { key:'type',  label:'Type (stock/crypto/…)', match:['type'] },
+    { key:'cost',  label:'Amount invested (£)',   match:['cost','invested','purchase','buy'] },
+    { key:'val',   label:'Current value (£)',     match:['val','value','current','worth'] },
+  ],
+  goals: [
+    { key:'title',    label:'Goal title',    match:['title','goal','name'] },
+    { key:'cat',      label:'Category',      match:['cat','category'] },
+    { key:'target',   label:'Target date',   match:['target','date','deadline'] },
+    { key:'progress', label:'Progress (%)',  match:['progress','pct','percent','%'] },
+    { key:'notes',    label:'Notes',         match:['notes','note','detail','details'] },
+  ],
+  events: [
+    { key:'title', label:'Event title', match:['title','event','name'] },
+    { key:'date',  label:'Date',        match:['date'] },
+    { key:'tag',   label:'Tag',         match:['tag','type','category'] },
+    { key:'notes', label:'Notes',       match:['notes','note','detail'] },
+  ],
+  notes: [
+    { key:'type',    label:'Type (diary/note/plan)', match:['type'] },
+    { key:'title',   label:'Title',                  match:['title','name'] },
+    { key:'content', label:'Content',                match:['content','body','text','entry'] },
+    { key:'date',    label:'Date',                   match:['date'] },
+  ],
+};
+
+function bestMatch(fieldMatches, headers) {
+  const lower = headers.map(h => String(h||'').toLowerCase());
+  for (const m of fieldMatches) {
+    for (const h of lower) {
+      if (m.some(k => h.includes(k))) return headers[lower.indexOf(h)];
+    }
+  }
+  return '';
+}
+
+function impDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('imp-dropzone').style.borderColor='var(--acc)';
+  document.getElementById('imp-dropzone').style.background='rgba(99,102,241,.06)';
+}
+function impDragLeave(e) {
+  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  document.getElementById('imp-dropzone').style.background='';
+}
+function impDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  impDragLeave(e);
+  const file = e.dataTransfer.files[0];
+  if (file) processImpFile(file);
+}
+function impFileChosen(input) {
+  if (input.files && input.files[0]) processImpFile(input.files[0]);
+}
+
+function processImpFile(file) {
+  if (file.size > 10*1024*1024) { snack('File too large (max 10 MB)', false); return; }
+
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  // If XLSX library isn't loaded yet, try waiting or fall back
+  if (typeof XLSX === 'undefined') {
+    snack('Spreadsheet library still loading, please try again in a moment', false);
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onerror = () => snack('Could not read file — please try again', false);
+
+  if (ext === 'csv') {
+    // Read CSV as text
+    reader.onload = e => {
+      try {
+        const text = e.target.result;
+        const wb = XLSX.read(text, { type: 'string', raw: false });
+        _impWorkbook = wb;
+        setupWorkbookUI(file.name, wb);
+      } catch(err) {
+        // Manual CSV parse fallback
+        try {
+          const rows = parseCSVManual(e.target.result);
+          _impWorkbook = null;
+          _impManualRows = rows;
+          setupManualRowsUI(file.name, rows);
+        } catch(err2) {
+          snack('Could not parse CSV: ' + err2.message, false);
+        }
+      }
+    };
+    reader.readAsText(file);
+  } else {
+    // Read Excel as binary
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' });
+        _impWorkbook = wb;
+        setupWorkbookUI(file.name, wb);
+      } catch(err) {
+        snack('Could not read Excel file: ' + err.message, false);
+        console.error('Excel read error:', err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+let _impManualRows = null;
+
+function parseCSVManual(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g,'').trim());
+  const rows = lines.slice(1).map(line => {
+    const vals = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g) || line.split(',');
+    const obj = {};
+    headers.forEach((h,i) => { obj[h] = (vals[i]||'').replace(/^"|"$/g,'').trim(); });
+    return obj;
   });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  return { headers, rows };
+}
+
+function setupWorkbookUI(filename, wb) {
+  document.getElementById('imp-filename').textContent = filename;
+  const sheets = wb.SheetNames;
+  const sel = document.getElementById('imp-sheet-sel');
+  sel.innerHTML = sheets.map(s=>`<option value="${s}">${s}</option>`).join('');
+  document.getElementById('imp-sheet-row').style.display = sheets.length > 1 ? 'block' : 'none';
+  document.getElementById('imp-preview').style.display = 'block';
+  loadSheetPreview(sheets[0]);
+}
+
+function setupManualRowsUI(filename, parsed) {
+  document.getElementById('imp-filename').textContent = filename;
+  document.getElementById('imp-sheet-row').style.display = 'none';
+  document.getElementById('imp-preview').style.display = 'block';
+
+  const { headers, rows } = parsed;
+  _impParsedRows = rows;
+  _impType = detectDataType(headers);
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  document.getElementById('imp-row-count').textContent = rows.length;
+  renderMappingAndTable(headers);
+}
+
+function impSheetChange() { loadSheetPreview(document.getElementById('imp-sheet-sel').value); }
+
+function loadSheetPreview(sheetName) {
+  if (!_impWorkbook) return;
+  const ws = _impWorkbook.Sheets[sheetName];
+  if (!ws) { snack('Could not read sheet', false); return; }
+
+  let rows;
+  try {
+    rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
+  } catch(e) {
+    snack('Error reading sheet: '+e.message, false); return;
+  }
+
+  if (!rows || !rows.length) { snack('Sheet appears to be empty', false); return; }
+
+  // Find first non-empty row as header
+  let headerIdx = 0;
+  for (let i=0; i<Math.min(8,rows.length); i++) {
+    if (rows[i] && rows[i].some(c=>String(c||'').trim())) { headerIdx=i; break; }
+  }
+
+  const rawHeaderRow = rows[headerIdx];
+  // Build headers keeping original column INDEX, only dropping fully-blank trailing columns
+  const headerEntries = rawHeaderRow.map((h,i) => ({ idx:i, name:String(h||'').trim() }))
+                                      .filter(e => e.name !== '');
+  if (!headerEntries.length) { snack('No column headers found in sheet', false); return; }
+
+  const dataRows = rows.slice(headerIdx+1).filter(r => r && r.some(c=>String(c||'').trim()));
+
+  const headers = headerEntries.map(e => e.name);
+  _impType = detectDataType(headers);
+  _impParsedRows = dataRows.map(r => {
+    const obj = {};
+    headerEntries.forEach(e => { obj[e.name] = r[e.idx] !== undefined ? String(r[e.idx]) : ''; });
+    return obj;
+  });
+
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  document.getElementById('imp-row-count').textContent = _impParsedRows.length;
+  renderMappingAndTable(headers);
+}
+
+function renderMappingAndTable(headers) {
+  const fields = TYPE_FIELDS[_impType] || TYPE_FIELDS.transactions;
+
+  document.getElementById('imp-mapping-area').innerHTML = `
+    <div style="background:var(--bg4);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
+        Column mapping — match your columns to the right fields
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+        ${fields.map(f => `
+          <div>
+            <label class="form-label">${f.label}</label>
+            <select id="map_${f.key}" style="width:100%">
+              <option value="">(skip)</option>
+              ${headers.map(h=>`<option value="${h}" ${bestMatch(f.match,headers)===h?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <label class="form-label" style="margin:0">Importing as:</label>
+        <select id="imp-type-override" style="width:160px" onchange="impTypeOverride(this.value)">
+          <option value="transactions" ${_impType==='transactions'?'selected':''}>Transactions</option>
+          <option value="investments" ${_impType==='investments'?'selected':''}>Investments</option>
+          <option value="goals" ${_impType==='goals'?'selected':''}>Goals</option>
+          <option value="events" ${_impType==='events'?'selected':''}>Events</option>
+          <option value="notes" ${_impType==='notes'?'selected':''}>Notes / diary</option>
+        </select>
+      </div>
+    </div>`;
+
+  const preview = _impParsedRows.slice(0,20);
+  document.getElementById('imp-table-wrap').innerHTML = preview.length ? `
+    <table style="width:100%;border-collapse:collapse;min-width:600px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${headers.map(h=>`<th style="padding:7px 10px;text-align:left;color:var(--text2);font-size:11px;white-space:nowrap">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${preview.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+          ${headers.map(h=>`<td style="padding:6px 10px;color:var(--text);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis">${r[h]??''}</td>`).join('')}
+        </tr>`).join('')}
+        ${_impParsedRows.length>20?`<tr><td colspan="${headers.length}" style="padding:8px 10px;color:var(--text3);font-size:11px">… and ${_impParsedRows.length-20} more rows</td></tr>`:''}
+      </tbody>
+    </table>` : '<div class="empty-state"><p>No data rows found</p></div>';
+}
+
+function impTypeOverride(newType) {
+  _impType = newType;
+  document.getElementById('imp-detect-badge').textContent = '📋 Detected: ' + _impType;
+  // Re-get headers from current parsed rows
+  const headers = _impParsedRows.length ? Object.keys(_impParsedRows[0]) : [];
+  if (headers.length) renderMappingAndTable(headers);
+}
+
+function parseExcelDate(val) {
+  if (!val) return new Date().toISOString().split('T')[0];
+  if (val instanceof Date) return val.toISOString().split('T')[0];
+  if (typeof val === 'number') {
+    // Excel serial date
+    const d = new Date((val - 25569) * 86400 * 1000);
+    return d.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  // Try DD/MM/YYYY
+  const ddmm = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (ddmm) {
+    const [,d,m,y] = ddmm;
+    const year = y.length===2 ? '20'+y : y;
+    return `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  const parsed = new Date(s);
+  if (!isNaN(parsed)) return parsed.toISOString().split('T')[0];
+  return new Date().toISOString().split('T')[0];
+}
+
+function getMapping(key) {
+  const el = document.getElementById('map_'+key);
+  return el ? el.value : '';
+}
+
+function getMapped(row, key) {
+  const col = getMapping(key);
+  return col ? String(row[col]??'').trim() : '';
+}
+
+function getAnyCol(row, ...keywords) {
+  // First try the mapping dropdown
+  for (const kw of keywords) {
+    const col = getMapping(kw);
+    if (col && row[col] !== undefined && String(row[col]).trim() !== '') {
+      return String(row[col]).trim();
+    }
+  }
+  // Fallback: scan all column headers for keyword match
+  const keys = Object.keys(row);
+  for (const kw of keywords) {
+    const found = keys.find(k => k.toLowerCase().includes(kw.toLowerCase()));
+    if (found && String(row[found]).trim() !== '') return String(row[found]).trim();
+  }
+  return '';
+}
+
+function parseAmt(str) {
+  if (str === '' || str === undefined || str === null) return 0;
+  // Handle expressions like "1,315 + 650 = 1,965" — take the last number
+  const s = String(str);
+  const matches = s.match(/[\d,]+\.?\d*/g);
+  if (!matches) return 0;
+  // Take the last number (usually the total in expressions)
+  const last = matches[matches.length - 1].replace(/,/g, '');
+  const n = parseFloat(last);
+  return isNaN(n) ? 0 : Math.abs(n);
+}
+
+function guessType(str) {
+  const s = String(str||'').toLowerCase().trim();
+  if (!s) return 'income';
+  if (s.includes('exp') || s.includes('debit') || s.includes('out') || s.includes('withdrawal') || s.includes('spend') || s.includes('cost') || s.includes('payment')) return 'expense';
+  if (s.includes('sav') || s.includes('transfer') || s.includes('deposit')) return 'savings';
+  return 'income';
+}
+
+// Detect if file is a payroll/budget format (has gross pay, net income, expenses columns)
+function isPayrollFormat(headers) {
+  const h = headers.map(x => String(x||'').toLowerCase()).join(' ');
+  return (h.includes('gross') || h.includes('net income') || h.includes('net movement')) &&
+         (h.includes('expense') || h.includes('tax'));
+}
+
+function impCommit() {
+  if (!_impParsedRows.length) { snack('Nothing to import', false); return; }
+  const headers = Object.keys(_impParsedRows[0]);
+  if (isPayrollFormat(headers)) {
+    importPayrollFormat(_impParsedRows, headers);
+  } else {
+    impCommitGeneric(_impType, _impParsedRows);
+  }
+}
+
+async function importPayrollFormat(rows, headers) {
+  const col = (kws) => headers.find(h => kws.some(kw => h.toLowerCase().includes(kw))) || '';
+  const dateCol   = col(['date','period','pay']);
+  const detailCol = col(['detail','description','name','narration']);
+  const netIncCol = col(['net income','net inc','take home','takehome','net pay']);
+  const grossCol  = col(['gross']);
+  const expCol    = col(['expense','expenses','spend']);
+
+  let added = 0;
+  const skipReasons = [];
+  const btn = document.querySelector('#imp-preview .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+
+  // Use today's date as a fallback anchor, walk forward 14 days per row if no real date exists
+  let fallbackDate = new Date();
+
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    const dateRaw = String(row[dateCol]||'').trim();
+    let date;
+
+    // Case 1: proper date (e.g. "12/08/2026" from an Excel serial)
+    if (dateRaw.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/) || dateRaw.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      date = parseExcelDate(dateRaw);
+    }
+    // Case 2: text label like "Current (15 May)" — try to extract a day/month
+    else if (dateRaw) {
+      const dayMonth = dateRaw.match(/(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i);
+      if (dayMonth) {
+        const guessYear = new Date().getFullYear();
+        const guess = new Date(`${dayMonth[1]} ${dayMonth[2]} ${guessYear}`);
+        date = isNaN(guess) ? parseExcelDate('') : guess.toISOString().split('T')[0];
+      } else {
+        date = fallbackDate.toISOString().split('T')[0];
+      }
+    }
+    // Case 3: nothing at all
+    else {
+      date = fallbackDate.toISOString().split('T')[0];
+    }
+    fallbackDate.setDate(fallbackDate.getDate() + 14); // advance for next unlabelled row
+
+    const detail = String(row[detailCol]||'').trim() || ('Pay period ' + (idx+1));
+    const netIncome = parseAmt(row[netIncCol] !== undefined ? row[netIncCol] : row[grossCol]);
+    const expAmt    = parseAmt(row[expCol]);
+
+    if (netIncome === 0 && expAmt === 0) {
+      skipReasons.push(`Row ${idx+2} ("${detail}"): no income or expense amount found (Net Income="${row[netIncCol]}", Expenses="${row[expCol]}")`);
+      continue;
+    }
+
+    if (netIncome > 0) {
+      try {
+        await api('POST', '/transactions', { type:'income', desc: detail, amount: netIncome, date, cat:'Salary' });
+        added++;
+      } catch(e) { skipReasons.push(`Row ${idx+2} income: ${e.message}`); }
+    }
+    if (expAmt > 0) {
+      try {
+        await api('POST', '/transactions', { type:'expense', desc: detail + ' — Expenses', amount: expAmt, date, cat:'Other' });
+        added++;
+      } catch(e) { skipReasons.push(`Row ${idx+2} expense: ${e.message}`); }
+    }
+
+    if (btn) btn.textContent = `Importing… ${idx+1}/${rows.length}`;
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-database-import"></i> Import'; }
+  finishImport(added, skipReasons, 'transactions');
+}
+
+async function impCommitGeneric(type, rows) {
+  const endpoint = '/' + (type==='investments' ? 'holdings' : type);
+  let added = 0;
+  const skipReasons = [];
+  const btn = document.querySelector('#imp-preview .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    let body = null;
+
+    if (type === 'transactions') {
+      const amount = parseAmt(getAnyCol(row,'amount','amt','value','sum','total','£','price','money','net'));
+      const desc   = getAnyCol(row,'desc','description','name','detail','memo','narration','particulars','reference','ref') || 'Imported row '+(idx+1);
+      const date   = parseExcelDate(getAnyCol(row,'date','time','datetime','day','period'));
+      const txnType= guessType(getAnyCol(row,'type','category','kind','direction','flow','credit','debit'));
+      const cat    = getAnyCol(row,'cat','category','tag','label','group','class') || 'Other';
+      if (amount <= 0) { skipReasons.push(`Row ${idx+2}: amount is 0 or missing`); continue; }
+      body = { type:txnType, desc, amount, date, cat };
+    } else if (type === 'investments') {
+      const name  = getAnyCol(row,'name','ticker','asset','holding','stock','fund','symbol') || 'Unnamed '+(idx+1);
+      const itype = getAnyCol(row,'type','asset','class') || 'other';
+      const cost  = parseAmt(getAnyCol(row,'cost','invested','purchase','buy','paid','bought','initial'));
+      const val   = parseAmt(getAnyCol(row,'val','value','current','worth','market','price','now')) || cost;
+      body = { name, type:itype, cost, val };
+    } else if (type === 'goals') {
+      const title    = getAnyCol(row,'title','goal','name','objective') || 'Goal '+(idx+1);
+      const cat      = getAnyCol(row,'cat','category','type','area') || 'life';
+      const target   = parseExcelDate(getAnyCol(row,'target','date','deadline','by','due'));
+      const progress = Math.min(100,Math.max(0,parseInt(getAnyCol(row,'progress','pct','percent','%','done'))||0));
+      const notes    = getAnyCol(row,'notes','note','detail','description','comment');
+      body = { title, cat, target, progress, notes };
+    } else if (type === 'events') {
+      const title = getAnyCol(row,'title','event','name','subject','description') || 'Event '+(idx+1);
+      const date  = parseExcelDate(getAnyCol(row,'date','time','day','when'));
+      const tag   = getAnyCol(row,'tag','type','category','label') || 'reminder';
+      const notes = getAnyCol(row,'notes','note','detail','description','comment');
+      body = { title, date, tag, notes };
+    } else if (type === 'notes') {
+      const title   = getAnyCol(row,'title','name','subject','heading') || 'Note '+(idx+1);
+      const content = getAnyCol(row,'content','body','text','entry','note','notes','detail','description');
+      const ntype   = getAnyCol(row,'type','kind','category') || 'note';
+      const date    = parseExcelDate(getAnyCol(row,'date','time','day'));
+      if (!content) { skipReasons.push(`Row ${idx+2}: no content found`); continue; }
+      body = { type:ntype, title, content, date };
+    }
+
+    if (body) {
+      try {
+        await api('POST', endpoint, body);
+        added++;
+        if (btn) btn.textContent = `Importing… ${added}/${rows.length}`;
+      } catch(e) { skipReasons.push(`Row ${idx+2}: ${e.message}`); }
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-database-import"></i> Import'; }
+  finishImport(added, skipReasons, type);
+}
+
+function finishImport(added, skipReasons, type) {
+  if (skipReasons.length) console.warn('Skipped rows:', skipReasons);
+  const dbg = document.getElementById('imp-debug');
+
+  if (added === 0) {
+    snack(`⚠ No rows imported — ${skipReasons.length} skipped`, false);
+    if (dbg) {
+      dbg.style.display = 'block';
+      dbg.innerHTML = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:14px;margin-top:12px">
+        <div style="font-weight:600;color:var(--red);margin-bottom:8px">⚠ All rows skipped — reasons:</div>
+        ${skipReasons.slice(0,15).map(r=>`<div style="font-size:12px;color:var(--text2);margin-bottom:3px">• ${r}</div>`).join('')}
+        ${skipReasons.length>15?`<div style="font-size:11px;color:var(--text3)">…and ${skipReasons.length-15} more</div>`:''}
+      </div>`;
+    }
+    return;
+  }
+
+  snack(`✓ Imported ${added} record${added!==1?'s':''}${skipReasons.length?' ('+skipReasons.length+' skipped)':''}`);
+
+  // Show skip reasons even on partial success, so the user knows what didn't make it
+  if (skipReasons.length > 0 && dbg) {
+    dbg.style.display = 'block';
+    dbg.innerHTML = `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:14px;margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+        <div style="font-weight:600;color:var(--acc3)">ℹ Imported ${added}, but ${skipReasons.length} row(s) were skipped:</div>
+        <button class="btn btn-ghost btn-sm" onclick="impReset()"><i class="ti ti-x"></i> Close</button>
+      </div>
+      ${skipReasons.slice(0,15).map(r=>`<div style="font-size:12px;color:var(--text2);margin-bottom:3px">• ${r}</div>`).join('')}
+      ${skipReasons.length>15?`<div style="font-size:11px;color:var(--text3)">…and ${skipReasons.length-15} more</div>`:''}
+    </div>`;
+    // Don't auto-reset the form so the user can review this message; close manually
+  } else {
+    impReset();
+  }
+
+  loadDashboard();
+  if (type==='transactions') { loadFinance(); loadBudget(); if (typeof buildForecast==='function') buildForecast(); }
+  if (type==='investments')  loadInvest();
+  if (type==='goals')        loadGoals();
+  if (type==='events')       loadCalendar();
+}
+
+function impReset() {
+  _impWorkbook = null; _impParsedRows = []; _impType = null; _impManualRows = null;
+  document.getElementById('imp-preview').style.display = 'none';
+  const fi = document.getElementById('imp-file');
+  fi.value = '';
+  document.getElementById('imp-dropzone').style.borderColor='var(--border2)';
+  document.getElementById('imp-dropzone').style.background='';
+  const dbg = document.getElementById('imp-debug');
+  if (dbg) { dbg.style.display='none'; dbg.innerHTML=''; }
+}
+
+/* ---- TEMPLATES ---- */
+const TEMPLATES = {
+  transactions: [['type','desc','amount','date','cat'],['income','Monthly salary','3000','2026-06-01','Salary'],['expense','Grocery shopping','85.50','2026-06-03','Food']],
+  investments:  [['name','type','cost','val'],['VWRL ETF','stock','5000','6200'],['Bitcoin','crypto','1000','1350']],
+  goals:        [['title','cat','target','progress','notes'],['Buy a house','finance','2028-01-01','25','Save for deposit'],['Travel Japan','travel','2027-06-01','10','']],
+  events:       [['title','date','tag','notes'],['Dentist appointment','2026-07-15','reminder',''],['Annual review','2026-09-01','finance','Salary discussion']],
+};
+
+function downloadTemplate(type) {
+  const rows = TEMPLATES[type];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, type);
+  XLSX.writeFile(wb, `template_${type}.xlsx`);
+}
+
+/* ---- EXPORT ---- */
+function exportData(section) {
+  if (section === 'all') {
+    const allData = {};
+    Object.keys(STORES).forEach(k => { allData[k] = lsGet(k); });
+    const blob = new Blob([JSON.stringify(allData, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `mylifehq_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click(); return;
+  }
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+  if (!data.length) { snack('No data to export', false); return; }
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, section);
+  XLSX.writeFile(wb, `${section}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  snack('Exported '+data.length+' rows');
+}
+
+/* ---- DATA MANAGER ---- */
+function dmLoad() {
+  const section = document.getElementById('dm-section').value;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+
+  if (!data.length) {
+    document.getElementById('dm-table-wrap').innerHTML = '<div class="empty-state"><i class="ti ti-database-off"></i><p>No data in this section</p></div>';
+    return;
+  }
+
+  const keys = Object.keys(data[0]).filter(k=>k!=='id');
+  document.getElementById('dm-table-wrap').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${keys.map(k=>`<th style="padding:8px 10px;text-align:left;color:var(--text2);font-size:11px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em">${k}</th>`).join('')}
+        <th style="padding:8px 10px;text-align:left;color:var(--text2);font-size:11px">Actions</th>
+      </tr></thead>
+      <tbody>
+        ${data.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.04)" id="dmr_${r.id}">
+          ${keys.map(k=>`<td style="padding:7px 10px;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" contenteditable="true" onblur="dmEdit('${section}','${r.id}','${k}',this.textContent)">${r[k]??''}</td>`).join('')}
+          <td style="padding:7px 10px;white-space:nowrap">
+            <button class="btn btn-danger btn-sm" onclick="dmDelete('${section}','${r.id}')"><i class="ti ti-trash"></i></button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function dmEdit(section, id, key, value) {
+  const storeKey = section==='investments' ? 'holdings' : section;
+  const data = lsGet(storeKey);
+  const rec = data.find(r=>r.id===id);
+  if (rec) { rec[key] = value; lsSet(storeKey, data); snack('Saved'); }
+}
+
+function dmDelete(section, id) {
+  if (!confirm('Delete this record?')) return;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  lsSet(storeKey, lsGet(storeKey).filter(r=>r.id!==id));
+  snack('Deleted'); dmLoad();
+}
+
+function dmClearSection() {
+  const section = document.getElementById('dm-section').value;
+  if (!confirm('Delete ALL records in "'+section+'"? This cannot be undone.')) return;
+  const storeKey = section==='investments' ? 'holdings' : section;
+  lsSet(storeKey, []);
+  snack('Section cleared'); dmLoad();
+}
+
+function dmClearAll() {
+  if (!confirm('Delete ALL your data from every section? This cannot be undone.')) return;
+  Object.values(STORES).forEach(k => localStorage.removeItem(k));
+  snack('All data cleared'); dmLoad();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -599,7 +1343,9 @@ function goTo(p) {
     diary: loadNotes,
     calendar: loadCalendar,
     goals: loadGoals,
-    forecast: buildForecast
+    forecast: buildForecast,
+    import: () => {},
+    datamanager: dmLoad
   };
   if (loaders[p]) loaders[p]();
 }
@@ -608,7 +1354,7 @@ function goTo(p) {
 async function loadDashboard() {
   const today = new Date();
   const h = today.getHours();
-  const greet = h<12?'Good morning':'h<17?'Good afternoon':'Good evening';
+  const greet = h<12?'Good morning':h<17?'Good afternoon':'Good evening';
   document.getElementById('dash-greeting').textContent = (h<12?'Good morning 🌅':h<17?'Good afternoon ☀️':'Good evening 🌙');
   document.getElementById('dash-date').textContent = today.toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
@@ -721,7 +1467,7 @@ async function deleteTxn(id) {
 async function loadBudget() {
   const [bcs, txns] = await Promise.all([api('GET','/budgetcats'), api('GET','/transactions')]);
   const spendByCat = {};
-  txns.filter(t => t.type === 'expense').forEach(t => { spendByCat[t.cat] = (spendByCat[t.cat]||0)+t.amount; });
+  txns.filter(t => String(t.type||'').toLowerCase() === 'expense').forEach(t => { spendByCat[t.cat] = (spendByCat[t.cat]||0)+(parseFloat(t.amount)||0); });
   document.getElementById('budget-list').innerHTML = bcs.map(bc => {
     const spent = spendByCat[bc.name] || 0;
     const p = Math.min(100, bc.amount > 0 ? spent/bc.amount*100 : 0);
@@ -771,8 +1517,8 @@ function calcLive() {
 // ============ INVESTMENTS ============
 async function loadInvest() {
   const holdings = await api('GET', '/holdings');
-  const total = holdings.reduce((a,h) => a+h.val, 0);
-  const cost = holdings.reduce((a,h) => a+h.cost, 0);
+  const total = holdings.reduce((a,h) => a+(parseFloat(h.val)||0), 0);
+  const cost  = holdings.reduce((a,h) => a+(parseFloat(h.cost)||0), 0);
   const gain = total-cost;
   document.getElementById('inv-val').textContent = fmt(total);
   document.getElementById('inv-cost').textContent = fmt(cost);
@@ -781,8 +1527,9 @@ async function loadInvest() {
   gb.innerHTML = `<span class="badge ${gain>=0?'badge-up':'badge-down'}">${gain>=0?'▲':'▼'} ${fmt(Math.abs(gain))} ${gain>=0?'gain':'loss'}</span>`;
   document.getElementById('holdings-list').innerHTML = holdings.length
     ? holdings.map(h => {
-        const g = h.val-h.cost; const gp = h.cost>0?((g/h.cost)*100).toFixed(1):0;
-        return `<div class="h-row"><span><strong style="color:var(--text)">${h.name}</strong><br><span style="font-size:11px;color:var(--text3)">${h.type}</span></span><span style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:${g>=0?'var(--green)':'var(--red)'}">${g>=0?'+':''}${gp}%</span><span class="row-val">${fmt(h.val)}</span><button class="btn btn-danger btn-sm" onclick="deleteHolding('${h.id}')"><i class="ti ti-trash"></i></button></span></div>`;
+        const hv = parseFloat(h.val)||0, hc = parseFloat(h.cost)||0;
+        const g = hv-hc; const gp = hc>0?((g/hc)*100).toFixed(1):0;
+        return `<div class="h-row"><span><strong style="color:var(--text)">${h.name}</strong><br><span style="font-size:11px;color:var(--text3)">${h.type}</span></span><span style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:${g>=0?'var(--green)':'var(--red)'}">${g>=0?'+':''}${gp}%</span><span class="row-val">${fmt(hv)}</span><button class="btn btn-danger btn-sm" onclick="deleteHolding('${h.id}')"><i class="ti ti-trash"></i></button></span></div>`;
       }).join('')
     : '<div class="empty-state"><i class="ti ti-building-bank"></i><p>No investments yet</p></div>';
   calcBE(); calcEF();
