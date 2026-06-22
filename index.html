@@ -1202,11 +1202,7 @@ function finishImport(added, skipReasons, type) {
     impReset();
   }
 
-  loadDashboard();
-  if (type==='transactions') { loadFinance(); loadBudget(); if (typeof buildForecast==='function') buildForecast(); }
-  if (type==='investments')  loadInvest();
-  if (type==='goals')        loadGoals();
-  if (type==='events')       loadCalendar();
+  refreshAllPages();
 }
 
 function impReset() {
@@ -1237,17 +1233,23 @@ function downloadTemplate(type) {
 }
 
 /* ---- EXPORT ---- */
-function exportData(section) {
+async function exportData(section) {
   if (section === 'all') {
+    snack('Gathering data…');
     const allData = {};
-    Object.keys(STORES).forEach(k => { allData[k] = lsGet(k); });
+    for (const key of ['transactions','holdings','notes','events','goals','budgetcats']) {
+      try { allData[key] = await api('GET', '/'+key); } catch(e) { allData[key] = []; }
+    }
     const blob = new Blob([JSON.stringify(allData, null, 2)], {type:'application/json'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `mylifehq_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click(); return;
+    a.click();
+    snack('Backup downloaded');
+    return;
   }
   const storeKey = section==='investments' ? 'holdings' : section;
-  const data = lsGet(storeKey);
+  let data;
+  try { data = await api('GET', '/'+storeKey); } catch(e) { snack('Could not load data: '+e.message, false); return; }
   if (!data.length) { snack('No data to export', false); return; }
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
@@ -1256,11 +1258,17 @@ function exportData(section) {
   snack('Exported '+data.length+' rows');
 }
 
-/* ---- DATA MANAGER ---- */
-function dmLoad() {
+/* ---- DATA MANAGER (reads & writes the LIVE app database via the API) ---- */
+async function dmLoad() {
   const section = document.getElementById('dm-section').value;
   const storeKey = section==='investments' ? 'holdings' : section;
-  const data = lsGet(storeKey);
+  document.getElementById('dm-table-wrap').innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+
+  let data;
+  try { data = await api('GET', '/'+storeKey); } catch(e) {
+    document.getElementById('dm-table-wrap').innerHTML = `<div class="empty-state"><i class="ti ti-alert-triangle"></i><p>Could not load data: ${e.message}</p></div>`;
+    return;
+  }
 
   if (!data.length) {
     document.getElementById('dm-table-wrap').innerHTML = '<div class="empty-state"><i class="ti ti-database-off"></i><p>No data in this section</p></div>';
@@ -1276,7 +1284,7 @@ function dmLoad() {
       </tr></thead>
       <tbody>
         ${data.map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.04)" id="dmr_${r.id}">
-          ${keys.map(k=>`<td style="padding:7px 10px;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" contenteditable="true" onblur="dmEdit('${section}','${r.id}','${k}',this.textContent)">${r[k]??''}</td>`).join('')}
+          ${keys.map(k=>`<td style="padding:7px 10px;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" contenteditable="true" data-orig="${(r[k]??'').toString().replace(/"/g,'&quot;')}" onblur="dmEdit('${section}','${r.id}','${k}',this)">${r[k]??''}</td>`).join('')}
           <td style="padding:7px 10px;white-space:nowrap">
             <button class="btn btn-danger btn-sm" onclick="dmDelete('${section}','${r.id}')"><i class="ti ti-trash"></i></button>
           </td>
@@ -1285,32 +1293,86 @@ function dmLoad() {
     </table>`;
 }
 
-function dmEdit(section, id, key, value) {
+async function dmEdit(section, id, key, cellEl) {
+  const newValue = cellEl.textContent.trim();
+  const oldValue = cellEl.getAttribute('data-orig') || '';
+  if (newValue === oldValue) return; // nothing changed, skip the round-trip
+
   const storeKey = section==='investments' ? 'holdings' : section;
-  const data = lsGet(storeKey);
-  const rec = data.find(r=>r.id===id);
-  if (rec) { rec[key] = value; lsSet(storeKey, data); snack('Saved'); }
+  cellEl.style.opacity = '0.5';
+
+  try {
+    // Fetch the current full record so we only change the one field
+    const all = await api('GET', '/'+storeKey);
+    const rec = all.find(r => r.id === id);
+    if (!rec) throw new Error('Record not found (it may have been deleted elsewhere)');
+
+    const updated = { ...rec, [key]: newValue };
+    delete updated.id;
+
+    // Recreate via POST, then remove the old record — works with POST/DELETE-only APIs
+    await api('POST', '/'+storeKey, updated);
+    await api('DELETE', '/'+storeKey+'/'+id, null);
+
+    cellEl.setAttribute('data-orig', newValue);
+    cellEl.style.opacity = '1';
+    snack('Saved — refreshing…');
+    dmLoad(); // ids change after recreate, so reload the table
+    refreshAllPages();
+  } catch(e) {
+    cellEl.style.opacity = '1';
+    cellEl.textContent = oldValue; // revert visually
+    snack('Could not save: ' + e.message, false);
+  }
 }
 
-function dmDelete(section, id) {
+async function dmDelete(section, id) {
   if (!confirm('Delete this record?')) return;
   const storeKey = section==='investments' ? 'holdings' : section;
-  lsSet(storeKey, lsGet(storeKey).filter(r=>r.id!==id));
-  snack('Deleted'); dmLoad();
+  try {
+    await api('DELETE', '/'+storeKey+'/'+id, null);
+    snack('Deleted');
+    dmLoad();
+    refreshAllPages();
+  } catch(e) { snack('Could not delete: '+e.message, false); }
 }
 
-function dmClearSection() {
+async function dmClearSection() {
   const section = document.getElementById('dm-section').value;
   if (!confirm('Delete ALL records in "'+section+'"? This cannot be undone.')) return;
   const storeKey = section==='investments' ? 'holdings' : section;
-  lsSet(storeKey, []);
-  snack('Section cleared'); dmLoad();
+  try {
+    const all = await api('GET', '/'+storeKey);
+    snack(`Deleting ${all.length} records…`);
+    for (const r of all) { await api('DELETE', '/'+storeKey+'/'+r.id, null); }
+    snack('Section cleared');
+    dmLoad();
+    refreshAllPages();
+  } catch(e) { snack('Error clearing section: '+e.message, false); }
 }
 
-function dmClearAll() {
+async function dmClearAll() {
   if (!confirm('Delete ALL your data from every section? This cannot be undone.')) return;
-  Object.values(STORES).forEach(k => localStorage.removeItem(k));
-  snack('All data cleared'); dmLoad();
+  const sections = ['transactions','holdings','notes','events','goals','budgetcats'];
+  for (const s of sections) {
+    try {
+      const all = await api('GET', '/'+s);
+      for (const r of all) { await api('DELETE', '/'+s+'/'+r.id, null); }
+    } catch(e) { console.warn('Could not clear', s, e); }
+  }
+  snack('All data cleared');
+  dmLoad();
+  refreshAllPages();
+}
+
+function refreshAllPages() {
+  loadDashboard();
+  loadFinance();
+  loadBudget();
+  loadInvest();
+  loadGoals();
+  loadCalendar();
+  if (typeof buildForecast==='function') buildForecast();
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
